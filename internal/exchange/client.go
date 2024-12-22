@@ -2,11 +2,17 @@
 package exchange
 
 type Client interface {
-	GetPrice(symbol string) (*ExchangePrice, error)
+	GetOrderBook(symbol string) (*OrderBook, error)
 }
 
-type ExchangePrice struct {
-	Price     float64
-	Available float64
-	Exchange  string
+type OrderBook struct {
+	Bids     [][2]string `json:"bids"`
+	Asks     [][2]string `json:"asks"`
+	Exchange string
+}
+
+type OrderLevel struct {
+	Price    float64
+	Size     float64
+	Exchange string
 }

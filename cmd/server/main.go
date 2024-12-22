@@ -16,11 +16,11 @@ func main() {
 	app := fiber.New()
 
 	// Initialize exchange clients
-	binanceClient := exchange.NewBinanceClient()
+	krakenClient := exchange.NewKrakenClient()
 	coinbaseClient := exchange.NewCoinbaseClient()
 
 	// Initialize service with exchange clients
-	orderService := service.NewOrderService(binanceClient, coinbaseClient)
+	orderService := service.NewOrderService(krakenClient, coinbaseClient)
 
 	// Initialize controller with service
 	orderController := controller.NewOrderController(orderService)

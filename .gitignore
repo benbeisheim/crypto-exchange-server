@@ -1,1 +1,28 @@
+# Config files
 config/config.json
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.vs/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+.env
+
+# Debug files
+debug/
+__debug_bin
