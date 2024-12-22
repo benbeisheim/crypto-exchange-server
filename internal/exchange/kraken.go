@@ -16,7 +16,6 @@ func NewKrakenClient() *KrakenClient {
 }
 
 func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
-	fmt.Println("symbol in kraken.getorderbook", symbol)
 	url := fmt.Sprintf("https://api.kraken.com/0/public/Depth?pair=%s", symbol)
 
 	client := &http.Client{
@@ -66,7 +65,7 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 
 	// Check for any errors in the response
 	if len(krakenResponse.Error) > 0 {
-		return nil, fmt.Errorf("kraken API error: %v", krakenResponse.Error)
+		fmt.Println("Error in kraken API response")
 	}
 
 	// Get the first (and typically only) order book in the result
@@ -75,9 +74,6 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 		orderBookData = book
 		break
 	}
-
-	fmt.Printf("Parsed Response: %+v\n", orderBookData)
-	fmt.Printf("Bids Length: %d, Asks Length: %d\n", len(orderBookData.Bids), len(orderBookData.Asks))
 
 	// Convert Kraken response to OrderBook format
 	orderBook := &OrderBook{

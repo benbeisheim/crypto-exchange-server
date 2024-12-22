@@ -15,7 +15,6 @@ func NewCoinbaseClient() *CoinbaseClient {
 }
 
 func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
-	fmt.Println("symbol in CoinbaseClient.GetOrderBook", symbol)
 	url := fmt.Sprintf("https://api.exchange.coinbase.com/products/%s/book?level=2", symbol)
 	res, err := http.Get(url)
 	if err != nil {
@@ -41,8 +40,6 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 		return nil, err
 	}
 
-	fmt.Println("coinbaseResponse.Asks", len(coinbaseResponse.Asks))
-
 	// Convert Coinbase response to new OrderBook format
 	orderBook := &OrderBook{
 		Bids:     make([][2]string, len(coinbaseResponse.Bids)),
@@ -63,7 +60,6 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 			ask[1].(string), // Size
 		}
 	}
-	fmt.Println("orderBook.Asks length coinbase", len(orderBook.Asks))
 
 	return orderBook, nil
 }

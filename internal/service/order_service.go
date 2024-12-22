@@ -23,7 +23,7 @@ func NewOrderService(kraken, coinbase exchange.Client) *OrderService {
 }
 
 // parse OrderLevel price/size into float
-func (s *OrderService) parseOrderLevel(level [2]string, exchangeName string) (exchange.OrderLevel, error) {
+func (s *OrderService) ParseOrderLevel(level [2]string, exchangeName string) (exchange.OrderLevel, error) {
 	price, err := strconv.ParseFloat(level[0], 64)
 	if err != nil {
 		return exchange.OrderLevel{}, fmt.Errorf("error parsing price: %v", err)
@@ -41,7 +41,7 @@ func (s *OrderService) parseOrderLevel(level [2]string, exchangeName string) (ex
 	}, nil
 }
 
-func (s *OrderService) aggregateOrderBooksBids(krakenBook, coinbaseBook *exchange.OrderBook) ([]exchange.OrderLevel, error) {
+func (s *OrderService) AggregateOrderBooksBids(krakenBook, coinbaseBook *exchange.OrderBook) ([]exchange.OrderLevel, error) {
 	var allBids []exchange.OrderLevel
 	krakenIndex := 0
 	coinbaseIndex := 0
@@ -49,7 +49,7 @@ func (s *OrderService) aggregateOrderBooksBids(krakenBook, coinbaseBook *exchang
 	for krakenIndex < len(krakenBook.Bids) || coinbaseIndex < len(coinbaseBook.Bids) {
 		// If no more kraken bids, append coinbase bid
 		if krakenIndex >= len(krakenBook.Bids) {
-			orderLevel, err := s.parseOrderLevel(coinbaseBook.Bids[coinbaseIndex], "coinbase")
+			orderLevel, err := s.ParseOrderLevel(coinbaseBook.Bids[coinbaseIndex], "coinbase")
 			if err != nil {
 				return nil, fmt.Errorf("coinbase bid error: %v", err)
 			}
@@ -60,7 +60,7 @@ func (s *OrderService) aggregateOrderBooksBids(krakenBook, coinbaseBook *exchang
 
 		// If no more coinbase bids, append kraken bid
 		if coinbaseIndex >= len(coinbaseBook.Bids) {
-			orderLevel, err := s.parseOrderLevel(krakenBook.Bids[krakenIndex], "kraken")
+			orderLevel, err := s.ParseOrderLevel(krakenBook.Bids[krakenIndex], "kraken")
 			if err != nil {
 				return nil, fmt.Errorf("kraken bid error: %v", err)
 			}
@@ -70,12 +70,12 @@ func (s *OrderService) aggregateOrderBooksBids(krakenBook, coinbaseBook *exchang
 		}
 
 		// Parse both prices for comparison
-		krakenOrderLevel, err := s.parseOrderLevel(krakenBook.Bids[krakenIndex], "kraken")
+		krakenOrderLevel, err := s.ParseOrderLevel(krakenBook.Bids[krakenIndex], "kraken")
 		if err != nil {
 			return nil, fmt.Errorf("kraken bid error: %v", err)
 		}
 
-		coinbaseOrderLevel, err := s.parseOrderLevel(coinbaseBook.Bids[coinbaseIndex], "coinbase")
+		coinbaseOrderLevel, err := s.ParseOrderLevel(coinbaseBook.Bids[coinbaseIndex], "coinbase")
 		if err != nil {
 			return nil, fmt.Errorf("coinbase bid error: %v", err)
 		}
@@ -93,7 +93,7 @@ func (s *OrderService) aggregateOrderBooksBids(krakenBook, coinbaseBook *exchang
 	return allBids, nil
 }
 
-func (s *OrderService) aggregateOrderBooksAsks(krakenBook, coinbaseBook *exchange.OrderBook) ([]exchange.OrderLevel, error) {
+func (s *OrderService) AggregateOrderBooksAsks(krakenBook, coinbaseBook *exchange.OrderBook) ([]exchange.OrderLevel, error) {
 	var allAsks []exchange.OrderLevel
 	krakenIndex := 0
 	coinbaseIndex := 0
@@ -101,7 +101,7 @@ func (s *OrderService) aggregateOrderBooksAsks(krakenBook, coinbaseBook *exchang
 	for krakenIndex < len(krakenBook.Asks) || coinbaseIndex < len(coinbaseBook.Asks) {
 		// If no more kraken asks, append coinbase ask
 		if krakenIndex >= len(krakenBook.Asks) {
-			orderLevel, err := s.parseOrderLevel(coinbaseBook.Asks[coinbaseIndex], "coinbase")
+			orderLevel, err := s.ParseOrderLevel(coinbaseBook.Asks[coinbaseIndex], "coinbase")
 			if err != nil {
 				return nil, fmt.Errorf("coinbase ask error: %v", err)
 			}
@@ -112,7 +112,7 @@ func (s *OrderService) aggregateOrderBooksAsks(krakenBook, coinbaseBook *exchang
 
 		// If no more coinbase asks, append kraken ask
 		if coinbaseIndex >= len(coinbaseBook.Asks) {
-			orderLevel, err := s.parseOrderLevel(krakenBook.Asks[krakenIndex], "kraken")
+			orderLevel, err := s.ParseOrderLevel(krakenBook.Asks[krakenIndex], "kraken")
 			if err != nil {
 				return nil, fmt.Errorf("kraken ask error: %v", err)
 			}
@@ -122,12 +122,12 @@ func (s *OrderService) aggregateOrderBooksAsks(krakenBook, coinbaseBook *exchang
 		}
 
 		// Parse both prices for comparison
-		krakenOrderLevel, err := s.parseOrderLevel(krakenBook.Asks[krakenIndex], "kraken")
+		krakenOrderLevel, err := s.ParseOrderLevel(krakenBook.Asks[krakenIndex], "kraken")
 		if err != nil {
 			return nil, fmt.Errorf("kraken ask error: %v", err)
 		}
 
-		coinbaseOrderLevel, err := s.parseOrderLevel(coinbaseBook.Asks[coinbaseIndex], "coinbase")
+		coinbaseOrderLevel, err := s.ParseOrderLevel(coinbaseBook.Asks[coinbaseIndex], "coinbase")
 		if err != nil {
 			return nil, fmt.Errorf("coinbase ask error: %v", err)
 		}
@@ -147,7 +147,8 @@ func (s *OrderService) aggregateOrderBooksAsks(krakenBook, coinbaseBook *exchang
 
 func (s *OrderService) ExecuteSell(amount float64, symbol string) (*Order, error) {
 	// Get order books from both exchanges
-	krakenBook, err := s.krakenClient.GetOrderBook(symbol)
+	krakenSymbol := strings.ReplaceAll(symbol, "-", "")
+	krakenBook, err := s.krakenClient.GetOrderBook(krakenSymbol)
 	if err != nil {
 		return nil, fmt.Errorf("kraken error: %v", err)
 	}
@@ -158,7 +159,7 @@ func (s *OrderService) ExecuteSell(amount float64, symbol string) (*Order, error
 	}
 
 	// Aggregate bids from both exchanges
-	allBids, err := s.aggregateOrderBooksBids(krakenBook, coinbaseBook)
+	allBids, err := s.AggregateOrderBooksBids(krakenBook, coinbaseBook)
 	if err != nil {
 		return nil, fmt.Errorf("error aggregating order books: %v", err)
 	}
@@ -228,7 +229,7 @@ func (s *OrderService) ExecuteBuy(amount float64, symbol string) (*Order, error)
 	}
 
 	// Aggregate asks from both exchanges
-	allAsks, err := s.aggregateOrderBooksAsks(krakenBook, coinbaseBook)
+	allAsks, err := s.AggregateOrderBooksAsks(krakenBook, coinbaseBook)
 	if err != nil {
 		return nil, fmt.Errorf("error aggregating order books: %v", err)
 	}

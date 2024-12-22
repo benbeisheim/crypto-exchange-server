@@ -1,6 +1,3 @@
-# Config files
-config/config.json
-
 # Go specific
 *.exe
 *.exe~
