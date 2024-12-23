@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,7 +17,7 @@ func TestGetOrderBook(t *testing.T) {
 		mockResponse   string
 		mockStatusCode int
 		expectError    bool
-		expectedBook   *exchange.OrderBook
+		expectedBook   *OrderBook
 	}{
 		{
 			name:   "successful response",
@@ -29,7 +28,7 @@ func TestGetOrderBook(t *testing.T) {
 			}`,
 			mockStatusCode: http.StatusOK,
 			expectError:    false,
-			expectedBook: &exchange.OrderBook{
+			expectedBook: &OrderBook{
 				Bids: [][2]string{
 					{"30000.00", "1.25"},
 					{"29999.00", "0.75"},
@@ -66,7 +65,7 @@ func TestGetOrderBook(t *testing.T) {
 			}`,
 			mockStatusCode: http.StatusOK,
 			expectError:    false,
-			expectedBook: &exchange.OrderBook{
+			expectedBook: &OrderBook{
 				Bids:     [][2]string{},
 				Asks:     [][2]string{},
 				Exchange: "coinbase",
@@ -104,7 +103,7 @@ func TestGetOrderBook(t *testing.T) {
 			defer server.Close()
 
 			// Create a client with the test server URL
-			client := &exchange.CoinbaseClient{}
+			client := &CoinbaseClient{}
 			// Override the default Coinbase API URL with our test server URL
 			originalURL := "https://api.exchange.coinbase.com"
 			defer func() {
@@ -145,7 +144,7 @@ func TestGetOrderBook(t *testing.T) {
 }
 
 func TestNewCoinbaseClient(t *testing.T) {
-	client := exchange.NewCoinbaseClient()
+	client := NewCoinbaseClient()
 	assert.NotNil(t, client)
-	assert.IsType(t, &exchange.CoinbaseClient{}, client)
+	assert.IsType(t, &CoinbaseClient{}, client)
 }

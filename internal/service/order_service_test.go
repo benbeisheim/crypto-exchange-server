@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
-	"github.com/benbeisheim/crypto-exchange-server/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -26,7 +25,7 @@ func (m *MockExchangeClient) GetOrderBook(symbol string) (*exchange.OrderBook, e
 func TestNewOrderService(t *testing.T) {
 	krakenClient := new(MockExchangeClient)
 	coinbaseClient := new(MockExchangeClient)
-	service := service.NewOrderService(krakenClient, coinbaseClient)
+	service := NewOrderService(krakenClient, coinbaseClient)
 
 	assert.NotNil(t, service)
 	assert.Equal(t, krakenClient, krakenClient)
@@ -34,7 +33,7 @@ func TestNewOrderService(t *testing.T) {
 }
 
 func TestParseOrderLevel(t *testing.T) {
-	service := service.NewOrderService(nil, nil)
+	service := NewOrderService(nil, nil)
 
 	tests := []struct {
 		name          string
@@ -93,7 +92,7 @@ func TestExecuteBuy(t *testing.T) {
 		krakenError   error
 		coinbaseError error
 		expectError   bool
-		expectedOrder *service.Order
+		expectedOrder *Order
 	}{
 		{
 			name:   "successful buy with best price aggregation",
@@ -116,7 +115,7 @@ func TestExecuteBuy(t *testing.T) {
 			krakenError:   nil,
 			coinbaseError: nil,
 			expectError:   false,
-			expectedOrder: &service.Order{
+			expectedOrder: &Order{
 				LowPrice:  30000.00,
 				HighPrice: 30001.00,
 				AvgPrice:  30000.50,
@@ -165,7 +164,7 @@ func TestExecuteBuy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			krakenClient := new(MockExchangeClient)
 			coinbaseClient := new(MockExchangeClient)
-			service := service.NewOrderService(krakenClient, coinbaseClient)
+			service := NewOrderService(krakenClient, coinbaseClient)
 
 			// Setup mock responses
 			krakenClient.On("GetOrderBook", "BTCUSD").Return(tt.krakenBook, tt.krakenError)
@@ -207,7 +206,7 @@ func TestExecuteSell(t *testing.T) {
 		krakenError   error
 		coinbaseError error
 		expectError   bool
-		expectedOrder *service.Order
+		expectedOrder *Order
 	}{
 		{
 			name:   "successful sell with best price aggregation",
@@ -230,7 +229,7 @@ func TestExecuteSell(t *testing.T) {
 			krakenError:   nil,
 			coinbaseError: nil,
 			expectError:   false,
-			expectedOrder: &service.Order{
+			expectedOrder: &Order{
 				LowPrice:  30002.00,
 				HighPrice: 30003.00,
 				AvgPrice:  30002.50,
@@ -277,7 +276,7 @@ func TestExecuteSell(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			krakenClient := new(MockExchangeClient)
 			coinbaseClient := new(MockExchangeClient)
-			service := service.NewOrderService(krakenClient, coinbaseClient)
+			service := NewOrderService(krakenClient, coinbaseClient)
 
 			// Setup mock responses
 			krakenClient.On("GetOrderBook", tt.symbol).Return(tt.krakenBook, tt.krakenError)
@@ -308,7 +307,7 @@ func TestExecuteSell(t *testing.T) {
 }
 
 func TestAggregateOrderBooksBids(t *testing.T) {
-	service := service.NewOrderService(nil, nil)
+	service := NewOrderService(nil, nil)
 
 	tests := []struct {
 		name         string
@@ -378,7 +377,7 @@ func TestAggregateOrderBooksBids(t *testing.T) {
 }
 
 func TestAggregateOrderBooksAsks(t *testing.T) {
-	service := service.NewOrderService(nil, nil)
+	service := NewOrderService(nil, nil)
 
 	tests := []struct {
 		name         string
@@ -448,7 +447,7 @@ func TestAggregateOrderBooksAsks(t *testing.T) {
 }
 
 func TestInvalidOrderLevelParsing(t *testing.T) {
-	service := service.NewOrderService(nil, nil)
+	service := NewOrderService(nil, nil)
 
 	tests := []struct {
 		name        string
@@ -492,7 +491,7 @@ func TestInvalidOrderLevelParsing(t *testing.T) {
 }
 
 func TestAggregateOrderBooksWithInvalidData(t *testing.T) {
-	service := service.NewOrderService(nil, nil)
+	service := NewOrderService(nil, nil)
 
 	tests := []struct {
 		name         string
@@ -542,7 +541,7 @@ func TestAggregateOrderBooksWithInvalidData(t *testing.T) {
 func TestExecutionWithEmptyOrderBooks(t *testing.T) {
 	krakenClient := new(MockExchangeClient)
 	coinbaseClient := new(MockExchangeClient)
-	service := service.NewOrderService(krakenClient, coinbaseClient)
+	service := NewOrderService(krakenClient, coinbaseClient)
 
 	emptyBook := &exchange.OrderBook{
 		Bids: [][2]string{},

@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,7 +16,7 @@ func TestGetKrakenOrderBook(t *testing.T) {
 		mockResponse   string
 		mockStatusCode int
 		expectError    bool
-		expectedBook   *exchange.OrderBook
+		expectedBook   *OrderBook
 	}{
 		{
 			name:   "successful response",
@@ -39,7 +38,7 @@ func TestGetKrakenOrderBook(t *testing.T) {
 			}`,
 			mockStatusCode: http.StatusOK,
 			expectError:    false,
-			expectedBook: &exchange.OrderBook{
+			expectedBook: &OrderBook{
 				Asks: [][2]string{
 					{"30001.00", "1.000"},
 					{"30002.00", "2.000"},
@@ -92,7 +91,7 @@ func TestGetKrakenOrderBook(t *testing.T) {
 			}`,
 			mockStatusCode: http.StatusOK,
 			expectError:    false,
-			expectedBook: &exchange.OrderBook{
+			expectedBook: &OrderBook{
 				Asks:     [][2]string{},
 				Bids:     [][2]string{},
 				Exchange: "kraken",
@@ -132,7 +131,7 @@ func TestGetKrakenOrderBook(t *testing.T) {
 			defer server.Close()
 
 			// Create a client that uses the test server URL
-			client := &exchange.KrakenClient{}
+			client := &KrakenClient{}
 
 			// Save and replace the default client for testing
 			originalHTTPClient := http.DefaultClient
@@ -175,9 +174,9 @@ func TestGetKrakenOrderBook(t *testing.T) {
 }
 
 func TestNewKrakenClient(t *testing.T) {
-	client := exchange.NewKrakenClient()
+	client := NewKrakenClient()
 	assert.NotNil(t, client)
-	assert.IsType(t, &exchange.KrakenClient{}, client)
+	assert.IsType(t, &KrakenClient{}, client)
 }
 
 func TestKrakenURLFormatting(t *testing.T) {
@@ -217,7 +216,7 @@ func TestKrakenURLFormatting(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := &exchange.KrakenClient{}
+			client := &KrakenClient{}
 			_, err := client.GetOrderBook(tt.symbol)
 			assert.NoError(t, err)
 		})
