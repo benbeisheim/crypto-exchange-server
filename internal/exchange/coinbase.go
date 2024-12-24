@@ -8,20 +8,28 @@ import (
 	"net/http"
 )
 
-type CoinbaseClient struct{} // Empty struct, no fields needed
+type CoinbaseClient struct {
+	baseURL string
+} // Empty struct, no fields needed
 
 func NewCoinbaseClient() *CoinbaseClient {
-	return &CoinbaseClient{}
+	return &CoinbaseClient{
+		baseURL: "https://api.exchange.coinbase.com",
+	}
 }
 
 func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
-	url := fmt.Sprintf("https://api.exchange.coinbase.com/products/%s/book?level=2", symbol)
+	url := fmt.Sprintf("%s/products/%s/book?level=2", c.baseURL, symbol)
 	res, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error sending request", err)
 		return nil, err
 	}
 	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", res.StatusCode)
+	}
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {

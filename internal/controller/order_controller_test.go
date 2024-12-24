@@ -28,7 +28,14 @@ func (m *MockExchangeClient) GetOrderBook(symbol string) (*exchange.OrderBook, e
 }
 
 func setupTest() (*fiber.App, *MockExchangeClient, *MockExchangeClient) {
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			return c.Status(400).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		},
+	})
+
 	mockKraken := new(MockExchangeClient)
 	mockCoinbase := new(MockExchangeClient)
 
@@ -55,7 +62,7 @@ func TestHandleBuy(t *testing.T) {
 	}{
 		{
 			name:       "successful buy",
-			amount:     1.0,
+			amount:     2.0,
 			symbol:     "BTC-USD",
 			setupMocks: true,
 			mockKraken: &exchange.OrderBook{
@@ -79,7 +86,7 @@ func TestHandleBuy(t *testing.T) {
 				"highPrice": 30001.0,
 				"avgPrice":  30000.5,
 				"exchange":  []interface{}{"kraken", "coinbase"},
-				"totalSize": 1.0,
+				"totalSize": 2.0,
 				"symbol":    "BTC-USD",
 			},
 		},
@@ -121,7 +128,7 @@ func TestHandleBuy(t *testing.T) {
 			mockError:      errors.New("insufficient liquidity"),
 			expectedStatus: 500,
 			expectedBody: map[string]interface{}{
-				"error": "insufficient liquidity",
+				"error": "kraken error: insufficient liquidity",
 			},
 		},
 	}
@@ -132,9 +139,10 @@ func TestHandleBuy(t *testing.T) {
 
 			if tt.setupMocks {
 				if tt.mockError != nil {
-					mockKraken.On("GetOrderBook", "BTCUSD").Return(nil, tt.mockError).Once()
+					// For Kraken, remove hyphen from symbol
+					mockKraken.On("GetOrderBook", tt.symbol).Return(nil, tt.mockError).Once()
 				} else {
-					mockKraken.On("GetOrderBook", "BTCUSD").Return(tt.mockKraken, nil).Once()
+					mockKraken.On("GetOrderBook", tt.symbol).Return(tt.mockKraken, nil).Once()
 					mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.mockCoinbase, nil).Once()
 				}
 			}
@@ -146,10 +154,43 @@ func TestHandleBuy(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
+			// In both TestHandleBuy and TestHandleSell, replace the body decoding and assertion section with this:
+
 			var body map[string]interface{}
 			err = json.NewDecoder(resp.Body).Decode(&body)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedBody, body)
+			if tt.expectedBody != nil {
+				assert.NoError(t, err)
+
+				// Extract exchange arrays for comparison
+				actualExchanges, hasExchanges := body["exchange"].([]interface{})
+				expectedExchanges, expectedHasExchanges := tt.expectedBody["exchange"].([]interface{})
+
+				if hasExchanges && expectedHasExchanges {
+					// Compare exchanges array independently of order
+					assert.ElementsMatch(t, expectedExchanges, actualExchanges)
+
+					// Create copies of maps without the exchange field
+					bodyWithoutExchanges := make(map[string]interface{})
+					expectedWithoutExchanges := make(map[string]interface{})
+
+					for k, v := range body {
+						if k != "exchange" {
+							bodyWithoutExchanges[k] = v
+						}
+					}
+					for k, v := range tt.expectedBody {
+						if k != "exchange" {
+							expectedWithoutExchanges[k] = v
+						}
+					}
+
+					// Compare everything else
+					assert.Equal(t, expectedWithoutExchanges, bodyWithoutExchanges)
+				} else {
+					// For error cases, compare entire response
+					assert.Equal(t, tt.expectedBody, body)
+				}
+			}
 
 			if tt.setupMocks {
 				mockKraken.AssertExpectations(t)
@@ -173,7 +214,7 @@ func TestHandleSell(t *testing.T) {
 	}{
 		{
 			name:       "successful sell",
-			amount:     1.0,
+			amount:     2.0,
 			symbol:     "BTC-USD",
 			setupMocks: true,
 			mockKraken: &exchange.OrderBook{
@@ -197,7 +238,7 @@ func TestHandleSell(t *testing.T) {
 				"highPrice": 30003.0,
 				"avgPrice":  30002.5,
 				"exchange":  []interface{}{"kraken", "coinbase"},
-				"totalSize": 1.0,
+				"totalSize": 2.0,
 				"symbol":    "BTC-USD",
 			},
 		},
@@ -239,7 +280,7 @@ func TestHandleSell(t *testing.T) {
 			mockError:      errors.New("insufficient liquidity"),
 			expectedStatus: 500,
 			expectedBody: map[string]interface{}{
-				"error": "insufficient liquidity",
+				"error": "kraken error: insufficient liquidity",
 			},
 		},
 	}
@@ -250,9 +291,9 @@ func TestHandleSell(t *testing.T) {
 
 			if tt.setupMocks {
 				if tt.mockError != nil {
-					mockKraken.On("GetOrderBook", "BTCUSD").Return(nil, tt.mockError).Once()
+					mockKraken.On("GetOrderBook", tt.symbol).Return(nil, tt.mockError).Once()
 				} else {
-					mockKraken.On("GetOrderBook", "BTCUSD").Return(tt.mockKraken, nil).Once()
+					mockKraken.On("GetOrderBook", tt.symbol).Return(tt.mockKraken, nil).Once()
 					mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.mockCoinbase, nil).Once()
 				}
 			}
@@ -264,10 +305,43 @@ func TestHandleSell(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
+			// In both TestHandleBuy and TestHandleSell, replace the body decoding and assertion section with this:
+
 			var body map[string]interface{}
 			err = json.NewDecoder(resp.Body).Decode(&body)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedBody, body)
+			if tt.expectedBody != nil {
+				assert.NoError(t, err)
+
+				// Extract exchange arrays for comparison
+				actualExchanges, hasExchanges := body["exchange"].([]interface{})
+				expectedExchanges, expectedHasExchanges := tt.expectedBody["exchange"].([]interface{})
+
+				if hasExchanges && expectedHasExchanges {
+					// Compare exchanges array independently of order
+					assert.ElementsMatch(t, expectedExchanges, actualExchanges)
+
+					// Create copies of maps without the exchange field
+					bodyWithoutExchanges := make(map[string]interface{})
+					expectedWithoutExchanges := make(map[string]interface{})
+
+					for k, v := range body {
+						if k != "exchange" {
+							bodyWithoutExchanges[k] = v
+						}
+					}
+					for k, v := range tt.expectedBody {
+						if k != "exchange" {
+							expectedWithoutExchanges[k] = v
+						}
+					}
+
+					// Compare everything else
+					assert.Equal(t, expectedWithoutExchanges, bodyWithoutExchanges)
+				} else {
+					// For error cases, compare entire response
+					assert.Equal(t, tt.expectedBody, body)
+				}
+			}
 
 			if tt.setupMocks {
 				mockKraken.AssertExpectations(t)

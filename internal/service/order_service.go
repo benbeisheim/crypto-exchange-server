@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"strings"
 
 	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
 )
@@ -147,8 +146,7 @@ func (s *OrderService) AggregateOrderBooksAsks(krakenBook, coinbaseBook *exchang
 
 func (s *OrderService) ExecuteSell(amount float64, symbol string) (*Order, error) {
 	// Get order books from both exchanges
-	krakenSymbol := strings.ReplaceAll(symbol, "-", "")
-	krakenBook, err := s.krakenClient.GetOrderBook(krakenSymbol)
+	krakenBook, err := s.krakenClient.GetOrderBook(symbol)
 	if err != nil {
 		return nil, fmt.Errorf("kraken error: %v", err)
 	}
@@ -212,13 +210,14 @@ func (s *OrderService) ExecuteSell(amount float64, symbol string) (*Order, error
 		HighPrice: highPrice,
 		AvgPrice:  totalRevenue / filledAmount,
 		Exchanges: exchangeList,
+		TotalSize: filledAmount,
+		Symbol:    symbol,
 	}, nil
 }
 
 func (s *OrderService) ExecuteBuy(amount float64, symbol string) (*Order, error) {
 	// Get order books from both exchanges
-	krakenSymbol := strings.ReplaceAll(symbol, "-", "")
-	krakenBook, err := s.krakenClient.GetOrderBook(krakenSymbol)
+	krakenBook, err := s.krakenClient.GetOrderBook(symbol)
 	if err != nil {
 		return nil, fmt.Errorf("kraken error: %v", err)
 	}

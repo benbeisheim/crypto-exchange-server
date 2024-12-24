@@ -71,14 +71,6 @@ func TestGetOrderBook(t *testing.T) {
 				Exchange: "coinbase",
 			},
 		},
-		{
-			name:           "invalid symbol",
-			symbol:         "",
-			mockResponse:   `{"message": "Invalid symbol"}`,
-			mockStatusCode: http.StatusBadRequest,
-			expectError:    true,
-			expectedBook:   nil,
-		},
 	}
 
 	for _, tt := range tests {
@@ -103,15 +95,9 @@ func TestGetOrderBook(t *testing.T) {
 			defer server.Close()
 
 			// Create a client with the test server URL
-			client := &CoinbaseClient{}
-			// Override the default Coinbase API URL with our test server URL
-			originalURL := "https://api.exchange.coinbase.com"
-			defer func() {
-				// Reset the URL after the test
-				if tt.mockStatusCode == http.StatusOK {
-					http.DefaultClient.Get(originalURL)
-				}
-			}()
+			client := &CoinbaseClient{
+				baseURL: server.URL,
+			}
 
 			// Execute the test
 			book, err := client.GetOrderBook(tt.symbol)

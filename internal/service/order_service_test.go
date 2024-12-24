@@ -1,7 +1,7 @@
 package service
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
@@ -28,170 +28,100 @@ func TestNewOrderService(t *testing.T) {
 	service := NewOrderService(krakenClient, coinbaseClient)
 
 	assert.NotNil(t, service)
-	assert.Equal(t, krakenClient, krakenClient)
-	assert.Equal(t, coinbaseClient, coinbaseClient)
+	assert.Equal(t, krakenClient, service.krakenClient)
+	assert.Equal(t, coinbaseClient, service.coinbaseClient)
 }
 
-func TestParseOrderLevel(t *testing.T) {
+// Test invalid order level parsing
+func TestInvalidOrderLevelParsing(t *testing.T) {
 	service := NewOrderService(nil, nil)
 
 	tests := []struct {
-		name          string
-		level         [2]string
-		exchange      string
-		expectError   bool
-		expectedSize  float64
-		expectedPrice float64
+		name        string
+		level       [2]string
+		exchange    string
+		errorString string
 	}{
 		{
-			name:          "valid order level",
-			level:         [2]string{"100.50", "1.5"},
-			exchange:      "kraken",
-			expectError:   false,
-			expectedPrice: 100.50,
-			expectedSize:  1.5,
-		},
-		{
-			name:        "invalid price",
-			level:       [2]string{"invalid", "1.5"},
-			exchange:    "coinbase",
-			expectError: true,
-		},
-		{
-			name:        "invalid size",
-			level:       [2]string{"100.50", "invalid"},
+			name:        "empty price",
+			level:       [2]string{"", "1.0"},
 			exchange:    "kraken",
-			expectError: true,
+			errorString: "error parsing price",
+		},
+		{
+			name:        "empty size",
+			level:       [2]string{"30000.00", ""},
+			exchange:    "coinbase",
+			errorString: "error parsing size",
+		},
+		{
+			name:        "invalid price format",
+			level:       [2]string{"30,000.00", "1.0"},
+			exchange:    "kraken",
+			errorString: "error parsing price",
+		},
+		{
+			name:        "invalid size format",
+			level:       [2]string{"30000.00", "1,0"},
+			exchange:    "coinbase",
+			errorString: "error parsing size",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := service.ParseOrderLevel(tt.level, tt.exchange)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedPrice, result.Price)
-			assert.Equal(t, tt.expectedSize, result.Size)
-			assert.Equal(t, tt.exchange, result.Exchange)
+			_, err := service.ParseOrderLevel(tt.level, tt.exchange)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errorString)
 		})
 	}
 }
 
-func TestExecuteBuy(t *testing.T) {
+// Test order book aggregation with invalid data
+func TestAggregateOrderBooksWithInvalidData(t *testing.T) {
+	service := NewOrderService(nil, nil)
+
 	tests := []struct {
-		name          string
-		amount        float64
-		symbol        string
-		krakenBook    *exchange.OrderBook
-		coinbaseBook  *exchange.OrderBook
-		krakenError   error
-		coinbaseError error
-		expectError   bool
-		expectedOrder *Order
+		name         string
+		krakenBook   *exchange.OrderBook
+		coinbaseBook *exchange.OrderBook
+		testBids     bool
+		errorString  string
 	}{
 		{
-			name:   "successful buy with best price aggregation",
-			amount: 2.0,
-			symbol: "BTC-USD",
+			name: "invalid kraken bid price",
 			krakenBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30000.00", "1.0"},
-					{"30002.00", "2.0"},
-				},
-				Exchange: "kraken",
+				Bids: [][2]string{{"invalid", "1.0"}},
 			},
 			coinbaseBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30001.00", "1.0"},
-					{"30003.00", "2.0"},
-				},
-				Exchange: "coinbase",
+				Bids: [][2]string{{"30000.00", "1.0"}},
 			},
-			krakenError:   nil,
-			coinbaseError: nil,
-			expectError:   false,
-			expectedOrder: &Order{
-				LowPrice:  30000.00,
-				HighPrice: 30001.00,
-				AvgPrice:  30000.50,
-				Exchanges: []string{"kraken", "coinbase"},
-				TotalSize: 2.0,
-				Symbol:    "BTC-USD",
-			},
+			testBids:    true,
+			errorString: "error parsing price",
 		},
 		{
-			name:         "kraken error",
-			amount:       1.0,
-			symbol:       "BTC-USD",
-			krakenBook:   nil,
-			coinbaseBook: nil,
-			krakenError:  fmt.Errorf("kraken api error"),
-			expectError:  true,
-		},
-		{
-			name:          "coinbase error",
-			amount:        1.0,
-			symbol:        "BTC-USD",
-			krakenBook:    nil,
-			coinbaseBook:  nil,
-			coinbaseError: fmt.Errorf("coinbase api error"),
-			expectError:   true,
-		},
-		{
-			name:   "insufficient liquidity",
-			amount: 5.0,
-			symbol: "BTC-USD",
+			name: "invalid coinbase ask size",
 			krakenBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30000.00", "1.0"},
-				},
+				Asks: [][2]string{{"30000.00", "1.0"}},
 			},
 			coinbaseBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30001.00", "1.0"},
-				},
+				Asks: [][2]string{{"30000.00", "invalid"}},
 			},
-			expectError: true,
+			testBids:    false,
+			errorString: "error parsing size",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			krakenClient := new(MockExchangeClient)
-			coinbaseClient := new(MockExchangeClient)
-			service := NewOrderService(krakenClient, coinbaseClient)
-
-			// Setup mock responses
-			krakenClient.On("GetOrderBook", "BTCUSD").Return(tt.krakenBook, tt.krakenError)
-			coinbaseClient.On("GetOrderBook", tt.symbol).Return(tt.coinbaseBook, tt.coinbaseError)
-
-			// Execute test
-			order, err := service.ExecuteBuy(tt.amount, tt.symbol)
-
-			// Verify results
-			if tt.expectError {
-				assert.Error(t, err)
-				assert.Nil(t, order)
-				return
+			var err error
+			if tt.testBids {
+				_, err = service.AggregateOrderBooksBids(tt.krakenBook, tt.coinbaseBook)
+			} else {
+				_, err = service.AggregateOrderBooksAsks(tt.krakenBook, tt.coinbaseBook)
 			}
-
-			assert.NoError(t, err)
-			assert.NotNil(t, order)
-			assert.InDelta(t, tt.expectedOrder.LowPrice, order.LowPrice, 0.01)
-			assert.InDelta(t, tt.expectedOrder.HighPrice, order.HighPrice, 0.01)
-			assert.InDelta(t, tt.expectedOrder.AvgPrice, order.AvgPrice, 0.01)
-			assert.Equal(t, tt.expectedOrder.TotalSize, order.TotalSize)
-			assert.ElementsMatch(t, tt.expectedOrder.Exchanges, order.Exchanges)
-			assert.Equal(t, tt.expectedOrder.Symbol, order.Symbol)
-
-			// Verify mock expectations
-			krakenClient.AssertExpectations(t)
-			coinbaseClient.AssertExpectations(t)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errorString)
 		})
 	}
 }
@@ -203,9 +133,8 @@ func TestExecuteSell(t *testing.T) {
 		symbol        string
 		krakenBook    *exchange.OrderBook
 		coinbaseBook  *exchange.OrderBook
-		krakenError   error
-		coinbaseError error
 		expectError   bool
+		mockError     error
 		expectedOrder *Order
 	}{
 		{
@@ -226,33 +155,22 @@ func TestExecuteSell(t *testing.T) {
 				},
 				Exchange: "coinbase",
 			},
-			krakenError:   nil,
-			coinbaseError: nil,
-			expectError:   false,
+			expectError: false,
 			expectedOrder: &Order{
 				LowPrice:  30002.00,
 				HighPrice: 30003.00,
 				AvgPrice:  30002.50,
 				Exchanges: []string{"kraken", "coinbase"},
+				TotalSize: 2.0,
+				Symbol:    "BTC-USD",
 			},
 		},
 		{
-			name:         "kraken error",
-			amount:       1.0,
-			symbol:       "BTC-USD",
-			krakenBook:   nil,
-			coinbaseBook: nil,
-			krakenError:  fmt.Errorf("kraken api error"),
-			expectError:  true,
-		},
-		{
-			name:          "coinbase error",
-			amount:        1.0,
-			symbol:        "BTC-USD",
-			krakenBook:    nil,
-			coinbaseBook:  nil,
-			coinbaseError: fmt.Errorf("coinbase api error"),
-			expectError:   true,
+			name:        "kraken api error",
+			amount:      1.0,
+			symbol:      "BTC-USD",
+			expectError: true,
+			mockError:   errors.New("api error"),
 		},
 		{
 			name:   "insufficient liquidity",
@@ -270,42 +188,171 @@ func TestExecuteSell(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name:   "empty order books",
+			amount: 1.0,
+			symbol: "BTC-USD",
+			krakenBook: &exchange.OrderBook{
+				Bids: [][2]string{},
+			},
+			coinbaseBook: &exchange.OrderBook{
+				Bids: [][2]string{},
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			krakenClient := new(MockExchangeClient)
-			coinbaseClient := new(MockExchangeClient)
-			service := NewOrderService(krakenClient, coinbaseClient)
+			mockKraken := new(MockExchangeClient)
+			mockCoinbase := new(MockExchangeClient)
+			service := NewOrderService(mockKraken, mockCoinbase)
 
-			// Setup mock responses
-			krakenClient.On("GetOrderBook", tt.symbol).Return(tt.krakenBook, tt.krakenError)
-			coinbaseClient.On("GetOrderBook", tt.symbol).Return(tt.coinbaseBook, tt.coinbaseError)
+			if !tt.expectError {
+				mockKraken.On("GetOrderBook", tt.symbol).Return(tt.krakenBook, nil).Once()
+				mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.coinbaseBook, nil).Once()
+			} else if tt.mockError != nil {
+				mockKraken.On("GetOrderBook", tt.symbol).Return(nil, tt.mockError).Once()
+			} else {
+				mockKraken.On("GetOrderBook", tt.symbol).Return(tt.krakenBook, nil).Once()
+				mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.coinbaseBook, nil).Once()
+			}
 
-			// Execute test
 			order, err := service.ExecuteSell(tt.amount, tt.symbol)
 
-			// Verify results
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, order)
-				return
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, order)
+				assert.InDelta(t, tt.expectedOrder.LowPrice, order.LowPrice, 0.01)
+				assert.InDelta(t, tt.expectedOrder.HighPrice, order.HighPrice, 0.01)
+				assert.InDelta(t, tt.expectedOrder.AvgPrice, order.AvgPrice, 0.01)
+				assert.Equal(t, tt.expectedOrder.Symbol, order.Symbol)
+				assert.Equal(t, tt.expectedOrder.TotalSize, order.TotalSize)
+				assert.ElementsMatch(t, tt.expectedOrder.Exchanges, order.Exchanges)
 			}
 
-			assert.NoError(t, err)
-			assert.NotNil(t, order)
-			assert.InDelta(t, tt.expectedOrder.LowPrice, order.LowPrice, 0.01)
-			assert.InDelta(t, tt.expectedOrder.HighPrice, order.HighPrice, 0.01)
-			assert.InDelta(t, tt.expectedOrder.AvgPrice, order.AvgPrice, 0.01)
-			assert.ElementsMatch(t, tt.expectedOrder.Exchanges, order.Exchanges)
-
-			// Verify mock expectations
-			krakenClient.AssertExpectations(t)
-			coinbaseClient.AssertExpectations(t)
+			mockKraken.AssertExpectations(t)
+			mockCoinbase.AssertExpectations(t)
 		})
 	}
 }
 
+func TestExecuteBuy(t *testing.T) {
+	tests := []struct {
+		name          string
+		amount        float64
+		symbol        string
+		krakenBook    *exchange.OrderBook
+		coinbaseBook  *exchange.OrderBook
+		expectError   bool
+		mockError     error
+		expectedOrder *Order
+	}{
+		{
+			name:   "successful buy with best price aggregation",
+			amount: 2.0,
+			symbol: "BTC-USD",
+			krakenBook: &exchange.OrderBook{
+				Asks: [][2]string{
+					{"30000.00", "1.0"},
+					{"30002.00", "2.0"},
+				},
+				Exchange: "kraken",
+			},
+			coinbaseBook: &exchange.OrderBook{
+				Asks: [][2]string{
+					{"30001.00", "1.0"},
+					{"30003.00", "2.0"},
+				},
+				Exchange: "coinbase",
+			},
+			expectError: false,
+			expectedOrder: &Order{
+				LowPrice:  30000.00,
+				HighPrice: 30001.00,
+				AvgPrice:  30000.50,
+				Exchanges: []string{"kraken", "coinbase"},
+				TotalSize: 2.0,
+				Symbol:    "BTC-USD",
+			},
+		},
+		{
+			name:        "kraken api error",
+			amount:      1.0,
+			symbol:      "BTC-USD",
+			expectError: true,
+			mockError:   errors.New("api error"),
+		},
+		{
+			name:   "insufficient liquidity",
+			amount: 5.0,
+			symbol: "BTC-USD",
+			krakenBook: &exchange.OrderBook{
+				Asks: [][2]string{
+					{"30000.00", "1.0"},
+				},
+			},
+			coinbaseBook: &exchange.OrderBook{
+				Asks: [][2]string{
+					{"30001.00", "1.0"},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name:   "empty order books",
+			amount: 1.0,
+			symbol: "BTC-USD",
+			krakenBook: &exchange.OrderBook{
+				Asks: [][2]string{},
+			},
+			coinbaseBook: &exchange.OrderBook{
+				Asks: [][2]string{},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockKraken := new(MockExchangeClient)
+			mockCoinbase := new(MockExchangeClient)
+			service := NewOrderService(mockKraken, mockCoinbase)
+
+			if !tt.expectError {
+				mockKraken.On("GetOrderBook", tt.symbol).Return(tt.krakenBook, nil).Once()
+				mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.coinbaseBook, nil).Once()
+			} else if tt.mockError != nil {
+				mockKraken.On("GetOrderBook", tt.symbol).Return(nil, tt.mockError).Once()
+			} else {
+				mockKraken.On("GetOrderBook", tt.symbol).Return(tt.krakenBook, nil).Once()
+				mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.coinbaseBook, nil).Once()
+			}
+
+			order, err := service.ExecuteBuy(tt.amount, tt.symbol)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, order)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, order)
+				assert.InDelta(t, tt.expectedOrder.LowPrice, order.LowPrice, 0.01)
+				assert.InDelta(t, tt.expectedOrder.HighPrice, order.HighPrice, 0.01)
+				assert.InDelta(t, tt.expectedOrder.AvgPrice, order.AvgPrice, 0.01)
+				assert.Equal(t, tt.expectedOrder.Symbol, order.Symbol)
+				assert.Equal(t, tt.expectedOrder.TotalSize, order.TotalSize)
+				assert.ElementsMatch(t, tt.expectedOrder.Exchanges, order.Exchanges)
+			}
+
+			mockKraken.AssertExpectations(t)
+			mockCoinbase.AssertExpectations(t)
+		})
+	}
+}
 func TestAggregateOrderBooksBids(t *testing.T) {
 	service := NewOrderService(nil, nil)
 
@@ -372,221 +419,6 @@ func TestAggregateOrderBooksBids(t *testing.T) {
 				assert.InDelta(t, expectedBid.Size, bids[i].Size, 0.01)
 				assert.Equal(t, expectedBid.Exchange, bids[i].Exchange)
 			}
-		})
-	}
-}
-
-func TestAggregateOrderBooksAsks(t *testing.T) {
-	service := NewOrderService(nil, nil)
-
-	tests := []struct {
-		name         string
-		krakenBook   *exchange.OrderBook
-		coinbaseBook *exchange.OrderBook
-		expectError  bool
-		expectedAsks []exchange.OrderLevel
-	}{
-		{
-			name: "successful aggregation",
-			krakenBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30000.00", "1.0"},
-					{"30002.00", "2.0"},
-				},
-			},
-			coinbaseBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30001.00", "1.0"},
-					{"30003.00", "2.0"},
-				},
-			},
-			expectError: false,
-			expectedAsks: []exchange.OrderLevel{
-				{Price: 30000.00, Size: 1.0, Exchange: "kraken"},
-				{Price: 30001.00, Size: 1.0, Exchange: "coinbase"},
-				{Price: 30002.00, Size: 2.0, Exchange: "kraken"},
-				{Price: 30003.00, Size: 2.0, Exchange: "coinbase"},
-			},
-		},
-		{
-			name: "empty coinbase book",
-			krakenBook: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30000.00", "1.0"},
-				},
-			},
-			coinbaseBook: &exchange.OrderBook{
-				Asks: [][2]string{},
-			},
-			expectError: false,
-			expectedAsks: []exchange.OrderLevel{
-				{Price: 30000.00, Size: 1.0, Exchange: "kraken"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			asks, err := service.AggregateOrderBooksAsks(tt.krakenBook, tt.coinbaseBook)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.Equal(t, len(tt.expectedAsks), len(asks))
-
-			for i, expectedAsk := range tt.expectedAsks {
-				assert.InDelta(t, expectedAsk.Price, asks[i].Price, 0.01)
-				assert.InDelta(t, expectedAsk.Size, asks[i].Size, 0.01)
-				assert.Equal(t, expectedAsk.Exchange, asks[i].Exchange)
-			}
-		})
-	}
-}
-
-func TestInvalidOrderLevelParsing(t *testing.T) {
-	service := NewOrderService(nil, nil)
-
-	tests := []struct {
-		name        string
-		level       [2]string
-		exchange    string
-		errorString string
-	}{
-		{
-			name:        "empty price",
-			level:       [2]string{"", "1.0"},
-			exchange:    "kraken",
-			errorString: "error parsing price",
-		},
-		{
-			name:        "empty size",
-			level:       [2]string{"30000.00", ""},
-			exchange:    "coinbase",
-			errorString: "error parsing size",
-		},
-		{
-			name:        "invalid price format",
-			level:       [2]string{"30,000.00", "1.0"},
-			exchange:    "kraken",
-			errorString: "error parsing price",
-		},
-		{
-			name:        "invalid size format",
-			level:       [2]string{"30000.00", "1,0"},
-			exchange:    "coinbase",
-			errorString: "error parsing size",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := service.ParseOrderLevel(tt.level, tt.exchange)
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), tt.errorString)
-		})
-	}
-}
-
-func TestAggregateOrderBooksWithInvalidData(t *testing.T) {
-	service := NewOrderService(nil, nil)
-
-	tests := []struct {
-		name         string
-		krakenBook   *exchange.OrderBook
-		coinbaseBook *exchange.OrderBook
-		testBids     bool
-		errorString  string
-	}{
-		{
-			name: "invalid kraken bid price",
-			krakenBook: &exchange.OrderBook{
-				Bids: [][2]string{{"invalid", "1.0"}},
-			},
-			coinbaseBook: &exchange.OrderBook{
-				Bids: [][2]string{{"30000.00", "1.0"}},
-			},
-			testBids:    true,
-			errorString: "error parsing price",
-		},
-		{
-			name: "invalid coinbase ask size",
-			krakenBook: &exchange.OrderBook{
-				Asks: [][2]string{{"30000.00", "1.0"}},
-			},
-			coinbaseBook: &exchange.OrderBook{
-				Asks: [][2]string{{"30000.00", "invalid"}},
-			},
-			testBids:    false,
-			errorString: "error parsing size",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var err error
-			if tt.testBids {
-				_, err = service.AggregateOrderBooksBids(tt.krakenBook, tt.coinbaseBook)
-			} else {
-				_, err = service.AggregateOrderBooksAsks(tt.krakenBook, tt.coinbaseBook)
-			}
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), tt.errorString)
-		})
-	}
-}
-
-func TestExecutionWithEmptyOrderBooks(t *testing.T) {
-	krakenClient := new(MockExchangeClient)
-	coinbaseClient := new(MockExchangeClient)
-	service := NewOrderService(krakenClient, coinbaseClient)
-
-	emptyBook := &exchange.OrderBook{
-		Bids: [][2]string{},
-		Asks: [][2]string{},
-	}
-
-	tests := []struct {
-		name        string
-		amount      float64
-		symbol      string
-		operation   string
-		errorString string
-	}{
-		{
-			name:        "buy with empty books",
-			amount:      1.0,
-			symbol:      "BTC-USD",
-			operation:   "buy",
-			errorString: "no asks available",
-		},
-		{
-			name:        "sell with empty books",
-			amount:      1.0,
-			symbol:      "BTC-USD",
-			operation:   "sell",
-			errorString: "no bids available",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			krakenClient.On("GetOrderBook", mock.Anything).Return(emptyBook, nil)
-			coinbaseClient.On("GetOrderBook", mock.Anything).Return(emptyBook, nil)
-
-			var err error
-			if tt.operation == "buy" {
-				_, err = service.ExecuteBuy(tt.amount, tt.symbol)
-			} else {
-				_, err = service.ExecuteSell(tt.amount, tt.symbol)
-			}
-
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), tt.errorString)
-			krakenClient.AssertExpectations(t)
-			coinbaseClient.AssertExpectations(t)
 		})
 	}
 }

@@ -2,8 +2,6 @@
 package controller
 
 import (
-	"strings"
-
 	"github.com/benbeisheim/crypto-exchange-server/internal/service"
 	"github.com/benbeisheim/crypto-exchange-server/internal/util"
 	"github.com/gofiber/fiber/v2"
@@ -39,7 +37,9 @@ func (c *OrderController) HandleBuy(ctx *fiber.Ctx) error {
 
 	// Validate symbol format
 	if err := util.ValidateSymbol(symbol); err != nil {
-		return err
+		return ctx.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	order, err := c.service.ExecuteBuy(amount, symbol)
@@ -72,13 +72,12 @@ func (c *OrderController) HandleSell(ctx *fiber.Ctx) error {
 
 	// Validate symbol format
 	if err := util.ValidateSymbol(symbol); err != nil {
-		return err
+		return ctx.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
-	// For kraken, remove the hyphen
-	krakenSymbol := strings.ReplaceAll(symbol, "-", "")
-
-	order, err := c.service.ExecuteSell(amount, krakenSymbol)
+	order, err := c.service.ExecuteSell(amount, symbol)
 	if err != nil {
 		return ctx.Status(500).JSON(fiber.Map{
 			"error": err.Error(),

@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"strings"
 )
 
-type KrakenClient struct{}
+type KrakenClient struct {
+	baseURL string
+}
 
 func NewKrakenClient() *KrakenClient {
-	return &KrakenClient{}
+	return &KrakenClient{
+		baseURL: "https://api.kraken.com",
+	}
 }
 
 func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
-	url := fmt.Sprintf("https://api.kraken.com/0/public/Depth?pair=%s", symbol)
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	url := fmt.Sprintf("%s/0/public/Depth?pair=%s", c.baseURL, strings.ReplaceAll(symbol, "-", ""))
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -30,12 +30,15 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 	req.Header.Add("User-Agent", "Mozilla/5.0")
 	req.Header.Add("Accept", "application/json")
 
-	res, err := client.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
 		return nil, err
 	}
 	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", res.StatusCode)
+	}
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -65,7 +68,7 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 
 	// Check for any errors in the response
 	if len(krakenResponse.Error) > 0 {
-		fmt.Println("Error in kraken API response")
+		return nil, fmt.Errorf("error in kraken API response: %v", krakenResponse.Error)
 	}
 
 	// Get the first (and typically only) order book in the result
