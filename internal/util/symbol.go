@@ -8,7 +8,7 @@ import (
 )
 
 // validateSymbol checks if the symbol is in the correct format (BASE-QUOTE)
-func ValidateSymbol(symbol string) error {
+func ValidateSymbolFormat(symbol string) error {
 	// Check if the symbol contains exactly one hyphen
 	parts := strings.Split(symbol, "-")
 	if len(parts) != 2 {

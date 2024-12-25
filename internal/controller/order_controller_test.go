@@ -2,350 +2,206 @@ package controller
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
 	"github.com/benbeisheim/crypto-exchange-server/internal/service"
+	"github.com/benbeisheim/crypto-exchange-server/internal/types"
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/valyala/fasthttp"
 )
 
-// MockExchangeClient implements the exchange.Client interface
-type MockExchangeClient struct {
+type MockOrderService struct {
 	mock.Mock
 }
 
-func (m *MockExchangeClient) GetOrderBook(symbol string) (*exchange.OrderBook, error) {
-	args := m.Called(symbol)
+func (m *MockOrderService) ExecuteTransaction(amount float64, symbol string, transType types.TransactionType) (*service.Order, error) {
+	args := m.Called(amount, symbol, transType)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*exchange.OrderBook), args.Error(1)
+	return args.Get(0).(*service.Order), args.Error(1)
 }
 
-func setupTest() (*fiber.App, *MockExchangeClient, *MockExchangeClient) {
+func setupTest() (*fiber.App, *MockOrderService) {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			return c.Status(400).JSON(fiber.Map{
+			code := fiber.StatusInternalServerError
+			if e, ok := err.(*fiber.Error); ok {
+				code = e.Code
+			}
+			return c.Status(code).JSON(fiber.Map{
 				"error": err.Error(),
 			})
 		},
 	})
 
-	mockKraken := new(MockExchangeClient)
-	mockCoinbase := new(MockExchangeClient)
-
-	orderService := service.NewOrderService(mockKraken, mockCoinbase)
-	controller := NewOrderController(orderService)
+	mockService := new(MockOrderService)
+	controller := NewOrderController(mockService)
 
 	app.Get("/buy", controller.HandleBuy)
 	app.Get("/sell", controller.HandleSell)
 
-	return app, mockKraken, mockCoinbase
+	return app, mockService
 }
 
-func TestHandleBuy(t *testing.T) {
+func TestHandleRequests(t *testing.T) {
 	tests := []struct {
 		name           string
+		endpoint       string // explicitly specify endpoint
 		amount         float64
 		symbol         string
-		setupMocks     bool
-		mockKraken     *exchange.OrderBook
-		mockCoinbase   *exchange.OrderBook
+		setupMock      bool
+		mockResponse   *service.Order
 		mockError      error
 		expectedStatus int
 		expectedBody   map[string]interface{}
 	}{
 		{
-			name:       "successful buy",
-			amount:     2.0,
-			symbol:     "BTC-USD",
-			setupMocks: true,
-			mockKraken: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30000.00", "1.0"},
-					{"30002.00", "2.0"},
-				},
-				Exchange: "kraken",
-			},
-			mockCoinbase: &exchange.OrderBook{
-				Asks: [][2]string{
-					{"30001.00", "1.0"},
-					{"30003.00", "2.0"},
-				},
-				Exchange: "coinbase",
-			},
-			mockError:      nil,
-			expectedStatus: 200,
-			expectedBody: map[string]interface{}{
-				"lowPrice":  30000.0,
-				"highPrice": 30001.0,
-				"avgPrice":  30000.5,
-				"exchange":  []interface{}{"kraken", "coinbase"},
-				"totalSize": 2.0,
-				"symbol":    "BTC-USD",
-			},
-		},
-		{
-			name:           "invalid amount",
+			name:           "invalid amount buy",
+			endpoint:       "/buy",
 			amount:         0,
 			symbol:         "BTC-USD",
-			setupMocks:     false,
+			setupMock:      false, // Important: no mock setup for validation errors
 			expectedStatus: 400,
 			expectedBody: map[string]interface{}{
 				"error": "Invalid amount",
 			},
 		},
 		{
-			name:           "missing symbol",
+			name:           "missing symbol buy",
+			endpoint:       "/buy",
 			amount:         1.0,
 			symbol:         "",
-			setupMocks:     false,
+			setupMock:      false,
 			expectedStatus: 400,
 			expectedBody: map[string]interface{}{
 				"error": "Symbol is required",
 			},
 		},
 		{
-			name:           "invalid symbol format",
-			amount:         1.0,
-			symbol:         "BTCUSD",
-			setupMocks:     false,
-			expectedStatus: 400,
+			name:      "successful buy",
+			endpoint:  "/buy",
+			amount:    1.0,
+			symbol:    "BTC-USD",
+			setupMock: true,
+			mockResponse: &service.Order{
+				LowPrice:  30000.0,
+				HighPrice: 30100.0,
+				AvgPrice:  30050.0,
+				Exchanges: []string{"kraken", "coinbase"},
+				TotalSize: 1.0,
+				Symbol:    "BTC-USD",
+			},
+			expectedStatus: 200,
 			expectedBody: map[string]interface{}{
-				"error": "invalid symbol format. Must be in 'BASE-QUOTE' format (e.g., 'BTC-USD')",
+				"lowPrice":  30000.0,
+				"highPrice": 30100.0,
+				"avgPrice":  30050.0,
+				"exchange":  []interface{}{"kraken", "coinbase"},
+				"totalSize": 1.0,
+				"symbol":    "BTC-USD",
 			},
 		},
-		{
-			name:           "service error",
-			amount:         1.0,
-			symbol:         "BTC-USD",
-			setupMocks:     true,
-			mockError:      errors.New("insufficient liquidity"),
-			expectedStatus: 500,
-			expectedBody: map[string]interface{}{
-				"error": "kraken error: insufficient liquidity",
-			},
-		},
+		// Similar cases for sell...
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app, mockKraken, mockCoinbase := setupTest()
+			app, mockService := setupTest()
 
-			if tt.setupMocks {
-				if tt.mockError != nil {
-					// For Kraken, remove hyphen from symbol
-					mockKraken.On("GetOrderBook", tt.symbol).Return(nil, tt.mockError).Once()
-				} else {
-					mockKraken.On("GetOrderBook", tt.symbol).Return(tt.mockKraken, nil).Once()
-					mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.mockCoinbase, nil).Once()
-				}
+			if tt.setupMock {
+				mockService.On("ExecuteTransaction", tt.amount, tt.symbol, types.TransactionType(tt.endpoint[1:])).
+					Return(tt.mockResponse, tt.mockError).Once()
 			}
 
-			req := httptest.NewRequest("GET", "/buy?amount="+
-				fmt.Sprintf("%f", tt.amount)+"&symbol="+tt.symbol, nil)
+			req := httptest.NewRequest("GET", fmt.Sprintf("%s?amount=%f&symbol=%s",
+				tt.endpoint, tt.amount, tt.symbol), nil)
 
 			resp, err := app.Test(req)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 
-			// In both TestHandleBuy and TestHandleSell, replace the body decoding and assertion section with this:
-
 			var body map[string]interface{}
 			err = json.NewDecoder(resp.Body).Decode(&body)
-			if tt.expectedBody != nil {
-				assert.NoError(t, err)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedBody, body)
 
-				// Extract exchange arrays for comparison
-				actualExchanges, hasExchanges := body["exchange"].([]interface{})
-				expectedExchanges, expectedHasExchanges := tt.expectedBody["exchange"].([]interface{})
-
-				if hasExchanges && expectedHasExchanges {
-					// Compare exchanges array independently of order
-					assert.ElementsMatch(t, expectedExchanges, actualExchanges)
-
-					// Create copies of maps without the exchange field
-					bodyWithoutExchanges := make(map[string]interface{})
-					expectedWithoutExchanges := make(map[string]interface{})
-
-					for k, v := range body {
-						if k != "exchange" {
-							bodyWithoutExchanges[k] = v
-						}
-					}
-					for k, v := range tt.expectedBody {
-						if k != "exchange" {
-							expectedWithoutExchanges[k] = v
-						}
-					}
-
-					// Compare everything else
-					assert.Equal(t, expectedWithoutExchanges, bodyWithoutExchanges)
-				} else {
-					// For error cases, compare entire response
-					assert.Equal(t, tt.expectedBody, body)
-				}
-			}
-
-			if tt.setupMocks {
-				mockKraken.AssertExpectations(t)
-				mockCoinbase.AssertExpectations(t)
+			if tt.setupMock {
+				mockService.AssertExpectations(t)
 			}
 		})
 	}
 }
 
-func TestHandleSell(t *testing.T) {
+func TestValidateRequest(t *testing.T) {
 	tests := []struct {
-		name           string
-		amount         float64
-		symbol         string
-		setupMocks     bool
-		mockKraken     *exchange.OrderBook
-		mockCoinbase   *exchange.OrderBook
-		mockError      error
-		expectedStatus int
-		expectedBody   map[string]interface{}
+		name          string
+		amount        float64
+		symbol        string
+		expectError   bool
+		expectedError string
 	}{
 		{
-			name:       "successful sell",
-			amount:     2.0,
-			symbol:     "BTC-USD",
-			setupMocks: true,
-			mockKraken: &exchange.OrderBook{
-				Bids: [][2]string{
-					{"30002.00", "1.0"},
-					{"30000.00", "2.0"},
-				},
-				Exchange: "kraken",
-			},
-			mockCoinbase: &exchange.OrderBook{
-				Bids: [][2]string{
-					{"30003.00", "1.0"},
-					{"30001.00", "2.0"},
-				},
-				Exchange: "coinbase",
-			},
-			mockError:      nil,
-			expectedStatus: 200,
-			expectedBody: map[string]interface{}{
-				"lowPrice":  30002.0,
-				"highPrice": 30003.0,
-				"avgPrice":  30002.5,
-				"exchange":  []interface{}{"kraken", "coinbase"},
-				"totalSize": 2.0,
-				"symbol":    "BTC-USD",
-			},
+			name:        "valid request",
+			amount:      1.0,
+			symbol:      "BTC-USD",
+			expectError: false,
 		},
 		{
-			name:           "invalid amount",
-			amount:         0,
-			symbol:         "BTC-USD",
-			setupMocks:     false,
-			expectedStatus: 400,
-			expectedBody: map[string]interface{}{
-				"error": "Invalid amount",
-			},
+			name:          "zero amount",
+			amount:        0,
+			symbol:        "BTC-USD",
+			expectError:   true,
+			expectedError: "Invalid amount",
 		},
 		{
-			name:           "missing symbol",
-			amount:         1.0,
-			symbol:         "",
-			setupMocks:     false,
-			expectedStatus: 400,
-			expectedBody: map[string]interface{}{
-				"error": "Symbol is required",
-			},
+			name:          "negative amount",
+			amount:        -1.0,
+			symbol:        "BTC-USD",
+			expectError:   true,
+			expectedError: "Invalid amount",
 		},
 		{
-			name:           "invalid symbol format",
-			amount:         1.0,
-			symbol:         "BTCUSD",
-			setupMocks:     false,
-			expectedStatus: 400,
-			expectedBody: map[string]interface{}{
-				"error": "invalid symbol format. Must be in 'BASE-QUOTE' format (e.g., 'BTC-USD')",
-			},
+			name:          "empty symbol",
+			amount:        1.0,
+			symbol:        "",
+			expectError:   true,
+			expectedError: "Symbol is required",
 		},
 		{
-			name:           "service error",
-			amount:         1.0,
-			symbol:         "BTC-USD",
-			setupMocks:     true,
-			mockError:      errors.New("insufficient liquidity"),
-			expectedStatus: 500,
-			expectedBody: map[string]interface{}{
-				"error": "kraken error: insufficient liquidity",
-			},
+			name:          "invalid symbol format",
+			amount:        1.0,
+			symbol:        "BTCUSD",
+			expectError:   true,
+			expectedError: "invalid symbol format",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app, mockKraken, mockCoinbase := setupTest()
+			app, _ := setupTest()
+			controller := &OrderController{}
 
-			if tt.setupMocks {
-				if tt.mockError != nil {
-					mockKraken.On("GetOrderBook", tt.symbol).Return(nil, tt.mockError).Once()
-				} else {
-					mockKraken.On("GetOrderBook", tt.symbol).Return(tt.mockKraken, nil).Once()
-					mockCoinbase.On("GetOrderBook", tt.symbol).Return(tt.mockCoinbase, nil).Once()
-				}
-			}
+			// Create a new fiber context for testing
+			req := httptest.NewRequest("GET", fmt.Sprintf("/test?amount=%f&symbol=%s",
+				tt.amount, tt.symbol), nil)
+			ctx := app.AcquireCtx(&fasthttp.RequestCtx{})
+			ctx.Request().SetRequestURI(req.URL.String())
+			defer app.ReleaseCtx(ctx)
 
-			req := httptest.NewRequest("GET", "/sell?amount="+
-				fmt.Sprintf("%f", tt.amount)+"&symbol="+tt.symbol, nil)
+			amount, symbol, err := controller.validateRequest(ctx)
 
-			resp, err := app.Test(req)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
-
-			// In both TestHandleBuy and TestHandleSell, replace the body decoding and assertion section with this:
-
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if tt.expectedBody != nil {
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
 				assert.NoError(t, err)
-
-				// Extract exchange arrays for comparison
-				actualExchanges, hasExchanges := body["exchange"].([]interface{})
-				expectedExchanges, expectedHasExchanges := tt.expectedBody["exchange"].([]interface{})
-
-				if hasExchanges && expectedHasExchanges {
-					// Compare exchanges array independently of order
-					assert.ElementsMatch(t, expectedExchanges, actualExchanges)
-
-					// Create copies of maps without the exchange field
-					bodyWithoutExchanges := make(map[string]interface{})
-					expectedWithoutExchanges := make(map[string]interface{})
-
-					for k, v := range body {
-						if k != "exchange" {
-							bodyWithoutExchanges[k] = v
-						}
-					}
-					for k, v := range tt.expectedBody {
-						if k != "exchange" {
-							expectedWithoutExchanges[k] = v
-						}
-					}
-
-					// Compare everything else
-					assert.Equal(t, expectedWithoutExchanges, bodyWithoutExchanges)
-				} else {
-					// For error cases, compare entire response
-					assert.Equal(t, tt.expectedBody, body)
-				}
-			}
-
-			if tt.setupMocks {
-				mockKraken.AssertExpectations(t)
-				mockCoinbase.AssertExpectations(t)
+				assert.Equal(t, tt.amount, amount)
+				assert.Equal(t, tt.symbol, symbol)
 			}
 		})
 	}

@@ -20,7 +20,8 @@ func NewKrakenClient() *KrakenClient {
 }
 
 func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
-	url := fmt.Sprintf("%s/0/public/Depth?pair=%s", c.baseURL, strings.ReplaceAll(symbol, "-", ""))
+	krakenSymbol := strings.ReplaceAll(symbol, "-", "")
+	url := fmt.Sprintf("%s/0/public/Depth?pair=%s", c.baseURL, krakenSymbol)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -32,7 +33,7 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error sending request: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -42,8 +43,7 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println("Error reading response body")
-		return nil, err
+		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
 	// Create a struct that matches the full Kraken API response
@@ -58,12 +58,10 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 		Result map[string]krakenOrderBook `json:"result"`
 	}
 
-	// Unmarshal into the full response struct
+	// Unmarshal into the krakenResponse struct
 	err = json.Unmarshal(body, &krakenResponse)
 	if err != nil {
-		fmt.Printf("Error parsing JSON: %v\n", err)
-		fmt.Printf("Raw JSON: %s\n", string(body))
-		return nil, err
+		return nil, fmt.Errorf("error unmarshalling response: %w", err)
 	}
 
 	// Check for any errors in the response
@@ -71,7 +69,8 @@ func (c *KrakenClient) GetOrderBook(symbol string) (*OrderBook, error) {
 		return nil, fmt.Errorf("error in kraken API response: %v", krakenResponse.Error)
 	}
 
-	// Get the first (and typically only) order book in the result
+	// Get the order book data from the result, krakenResponse.Result is a map of pairs requested to
+	// order book data, since we only request one pair, we take the first (only) one
 	var orderBookData krakenOrderBook
 	for _, book := range krakenResponse.Result {
 		orderBookData = book

@@ -25,7 +25,7 @@ func TestGetKrakenOrderBook(t *testing.T) {
 			mockResponse: `{
 				"error": [],
 				"result": {
-					"BTC-USD": {
+					"BTCUSD": {
 						"asks": [
 							["30001.00", "1.000", 1623456789],
 							["30002.00", "2.000", 1623456790]

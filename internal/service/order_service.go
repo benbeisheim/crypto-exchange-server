@@ -7,7 +7,12 @@ import (
 	"strconv"
 
 	"github.com/benbeisheim/crypto-exchange-server/internal/exchange"
+	"github.com/benbeisheim/crypto-exchange-server/internal/types"
 )
+
+type OrderServiceInterface interface {
+	ExecuteTransaction(amount float64, symbol string, transType types.TransactionType) (*Order, error)
+}
 
 type OrderService struct {
 	krakenClient   exchange.Client
@@ -22,7 +27,7 @@ func NewOrderService(kraken, coinbase exchange.Client) *OrderService {
 }
 
 // parse OrderLevel price/size into float
-func (s *OrderService) ParseOrderLevel(level [2]string, exchangeName string) (exchange.OrderLevel, error) {
+func (s *OrderService) parseOrderLevel(level [2]string, exchangeName string) (exchange.OrderLevel, error) {
 	price, err := strconv.ParseFloat(level[0], 64)
 	if err != nil {
 		return exchange.OrderLevel{}, fmt.Errorf("error parsing price: %v", err)
@@ -40,111 +45,67 @@ func (s *OrderService) ParseOrderLevel(level [2]string, exchangeName string) (ex
 	}, nil
 }
 
-func (s *OrderService) AggregateOrderBooksBids(krakenBook, coinbaseBook *exchange.OrderBook) ([]exchange.OrderLevel, error) {
-	var allBids []exchange.OrderLevel
+func (s *OrderService) aggregateOrderBooks(krakenLevels, coinbaseLevels [][2]string, side types.OrderSide) ([]exchange.OrderLevel, error) {
+	var allLevels []exchange.OrderLevel
 	krakenIndex := 0
 	coinbaseIndex := 0
 
-	for krakenIndex < len(krakenBook.Bids) || coinbaseIndex < len(coinbaseBook.Bids) {
-		// If no more kraken bids, append coinbase bid
-		if krakenIndex >= len(krakenBook.Bids) {
-			orderLevel, err := s.ParseOrderLevel(coinbaseBook.Bids[coinbaseIndex], "coinbase")
+	isDescending := side == types.Bids
+
+	for krakenIndex < len(krakenLevels) || coinbaseIndex < len(coinbaseLevels) {
+		// Handle case where we've exhausted one exchange's orders
+		if krakenIndex >= len(krakenLevels) {
+			level, err := s.parseOrderLevel(coinbaseLevels[coinbaseIndex], "coinbase")
 			if err != nil {
-				return nil, fmt.Errorf("coinbase bid error: %v", err)
+				return nil, err
 			}
-			allBids = append(allBids, orderLevel)
+			allLevels = append(allLevels, level)
 			coinbaseIndex++
 			continue
 		}
 
-		// If no more coinbase bids, append kraken bid
-		if coinbaseIndex >= len(coinbaseBook.Bids) {
-			orderLevel, err := s.ParseOrderLevel(krakenBook.Bids[krakenIndex], "kraken")
+		if coinbaseIndex >= len(coinbaseLevels) {
+			level, err := s.parseOrderLevel(krakenLevels[krakenIndex], "kraken")
 			if err != nil {
-				return nil, fmt.Errorf("kraken bid error: %v", err)
+				return nil, err
 			}
-			allBids = append(allBids, orderLevel)
+			allLevels = append(allLevels, level)
 			krakenIndex++
 			continue
 		}
 
-		// Parse both prices for comparison
-		krakenOrderLevel, err := s.ParseOrderLevel(krakenBook.Bids[krakenIndex], "kraken")
+		// Parse both levels for comparison
+		krakenLevel, err := s.parseOrderLevel(krakenLevels[krakenIndex], "kraken")
 		if err != nil {
-			return nil, fmt.Errorf("kraken bid error: %v", err)
+			return nil, err
 		}
 
-		coinbaseOrderLevel, err := s.ParseOrderLevel(coinbaseBook.Bids[coinbaseIndex], "coinbase")
+		coinbaseLevel, err := s.parseOrderLevel(coinbaseLevels[coinbaseIndex], "coinbase")
 		if err != nil {
-			return nil, fmt.Errorf("coinbase bid error: %v", err)
+			return nil, err
 		}
 
-		// Compare prices and append highest (opposite from asks)
-		if krakenOrderLevel.Price > coinbaseOrderLevel.Price {
-			allBids = append(allBids, krakenOrderLevel)
+		// Compare prices based on order side
+		var shouldUseKraken bool
+		if isDescending {
+			shouldUseKraken = krakenLevel.Price > coinbaseLevel.Price
+		} else {
+			shouldUseKraken = krakenLevel.Price < coinbaseLevel.Price
+		}
+
+		if shouldUseKraken {
+			allLevels = append(allLevels, krakenLevel)
 			krakenIndex++
 		} else {
-			allBids = append(allBids, coinbaseOrderLevel)
+			allLevels = append(allLevels, coinbaseLevel)
 			coinbaseIndex++
 		}
 	}
 
-	return allBids, nil
+	return allLevels, nil
 }
 
-func (s *OrderService) AggregateOrderBooksAsks(krakenBook, coinbaseBook *exchange.OrderBook) ([]exchange.OrderLevel, error) {
-	var allAsks []exchange.OrderLevel
-	krakenIndex := 0
-	coinbaseIndex := 0
-
-	for krakenIndex < len(krakenBook.Asks) || coinbaseIndex < len(coinbaseBook.Asks) {
-		// If no more kraken asks, append coinbase ask
-		if krakenIndex >= len(krakenBook.Asks) {
-			orderLevel, err := s.ParseOrderLevel(coinbaseBook.Asks[coinbaseIndex], "coinbase")
-			if err != nil {
-				return nil, fmt.Errorf("coinbase ask error: %v", err)
-			}
-			allAsks = append(allAsks, orderLevel)
-			coinbaseIndex++
-			continue
-		}
-
-		// If no more coinbase asks, append kraken ask
-		if coinbaseIndex >= len(coinbaseBook.Asks) {
-			orderLevel, err := s.ParseOrderLevel(krakenBook.Asks[krakenIndex], "kraken")
-			if err != nil {
-				return nil, fmt.Errorf("kraken ask error: %v", err)
-			}
-			allAsks = append(allAsks, orderLevel)
-			krakenIndex++
-			continue
-		}
-
-		// Parse both prices for comparison
-		krakenOrderLevel, err := s.ParseOrderLevel(krakenBook.Asks[krakenIndex], "kraken")
-		if err != nil {
-			return nil, fmt.Errorf("kraken ask error: %v", err)
-		}
-
-		coinbaseOrderLevel, err := s.ParseOrderLevel(coinbaseBook.Asks[coinbaseIndex], "coinbase")
-		if err != nil {
-			return nil, fmt.Errorf("coinbase ask error: %v", err)
-		}
-
-		// Compare prices and append lowest
-		if krakenOrderLevel.Price < coinbaseOrderLevel.Price {
-			allAsks = append(allAsks, krakenOrderLevel)
-			krakenIndex++
-		} else {
-			allAsks = append(allAsks, coinbaseOrderLevel)
-			coinbaseIndex++
-		}
-	}
-
-	return allAsks, nil
-}
-
-func (s *OrderService) ExecuteSell(amount float64, symbol string) (*Order, error) {
+func (s *OrderService) ExecuteTransaction(amount float64, symbol string, transType types.TransactionType) (*Order, error) {
 	// Get order books from both exchanges
 	krakenBook, err := s.krakenClient.GetOrderBook(symbol)
 	if err != nil {
@@ -156,85 +117,27 @@ func (s *OrderService) ExecuteSell(amount float64, symbol string) (*Order, error
 		return nil, fmt.Errorf("coinbase error: %v", err)
 	}
 
-	// Aggregate bids from both exchanges
-	allBids, err := s.AggregateOrderBooksBids(krakenBook, coinbaseBook)
+	// Determine which side of the order book to use
+	side := transType.ToOrderSide()
+
+	// Get the appropriate order levels based on transaction type
+	var krakenLevels, coinbaseLevels [][2]string
+	if side == types.Bids {
+		krakenLevels = krakenBook.Bids
+		coinbaseLevels = coinbaseBook.Bids
+	} else {
+		krakenLevels = krakenBook.Asks
+		coinbaseLevels = coinbaseBook.Asks
+	}
+
+	// Aggregate orders from both exchanges
+	orders, err := s.aggregateOrderBooks(krakenLevels, coinbaseLevels, side)
 	if err != nil {
 		return nil, fmt.Errorf("error aggregating order books: %v", err)
 	}
 
-	if len(allBids) == 0 {
-		return nil, fmt.Errorf("no bids available for %s", symbol)
-	}
-
-	// Initialize tracking variables
-	var totalRevenue float64
-	var filledAmount float64
-	exchanges := make(map[string]bool)
-	remainingAmount := amount
-	highPrice := allBids[0].Price // First bid is highest price since bids are sorted descending
-	var lowPrice float64          // Will be set by last used bid
-
-	// Fill order from aggregated bids
-	for _, level := range allBids {
-		if remainingAmount <= 0 {
-			break
-		}
-
-		lowPrice = level.Price // Will end up being lowest price used
-
-		// Calculate fill at this level
-		fillAmount := math.Min(remainingAmount, level.Size)
-		revenue := fillAmount * level.Price
-
-		// Update totals
-		totalRevenue += revenue
-		filledAmount += fillAmount
-		remainingAmount -= fillAmount
-		exchanges[level.Exchange] = true
-	}
-
-	// Check if order was completely filled
-	if remainingAmount > 0 {
-		return nil, fmt.Errorf("insufficient liquidity to fill order of size %f, only filled %f", amount, filledAmount)
-	}
-
-	// Convert exchanges map to slice
-	var exchangeList []string
-	for exchange := range exchanges {
-		exchangeList = append(exchangeList, exchange)
-	}
-
-	// Create and return order summary
-	return &Order{
-		LowPrice:  lowPrice,
-		HighPrice: highPrice,
-		AvgPrice:  totalRevenue / filledAmount,
-		Exchanges: exchangeList,
-		TotalSize: filledAmount,
-		Symbol:    symbol,
-	}, nil
-}
-
-func (s *OrderService) ExecuteBuy(amount float64, symbol string) (*Order, error) {
-	// Get order books from both exchanges
-	krakenBook, err := s.krakenClient.GetOrderBook(symbol)
-	if err != nil {
-		return nil, fmt.Errorf("kraken error: %v", err)
-	}
-
-	coinbaseBook, err := s.coinbaseClient.GetOrderBook(symbol)
-	if err != nil {
-		return nil, fmt.Errorf("coinbase error: %v", err)
-	}
-
-	// Aggregate asks from both exchanges
-	allAsks, err := s.AggregateOrderBooksAsks(krakenBook, coinbaseBook)
-	if err != nil {
-		return nil, fmt.Errorf("error aggregating order books: %v", err)
-	}
-
-	if len(allAsks) == 0 {
-		return nil, fmt.Errorf("no asks available for %s", symbol)
+	if len(orders) == 0 {
+		return nil, fmt.Errorf("no %s available for %s", side, symbol)
 	}
 
 	// Initialize tracking variables
@@ -242,22 +145,30 @@ func (s *OrderService) ExecuteBuy(amount float64, symbol string) (*Order, error)
 	var filledAmount float64
 	exchanges := make(map[string]bool)
 	remainingAmount := amount
-	lowPrice := allAsks[0].Price // First ask is lowest price since asks are sorted ascending
-	var highPrice float64        // Will be set by last used ask
 
-	// Fill order from aggregated asks
-	for _, level := range allAsks {
+	// Track price ranges based on transaction type
+	var lowPrice, highPrice float64
+	if side == types.Asks {
+		lowPrice = orders[0].Price // First ask is lowest for buys
+	} else {
+		highPrice = orders[0].Price // First bid is highest for sells
+	}
+
+	// Fill order from aggregated levels
+	for _, level := range orders {
 		if remainingAmount <= 0 {
 			break
 		}
 
-		highPrice = level.Price // Will end up being highest price used
+		if side == types.Asks {
+			highPrice = level.Price
+		} else {
+			lowPrice = level.Price
+		}
 
-		// Calculate fill at this level
 		fillAmount := math.Min(remainingAmount, level.Size)
 		cost := fillAmount * level.Price
 
-		// Update totals
 		totalCost += cost
 		filledAmount += fillAmount
 		remainingAmount -= fillAmount
@@ -266,7 +177,8 @@ func (s *OrderService) ExecuteBuy(amount float64, symbol string) (*Order, error)
 
 	// Check if order was completely filled
 	if remainingAmount > 0 {
-		return nil, fmt.Errorf("insufficient liquidity to fill order of size %f, only filled %f", amount, filledAmount)
+		return nil, fmt.Errorf("insufficient liquidity to fill order of size %f, only filled %f",
+			amount, filledAmount)
 	}
 
 	// Convert exchanges map to slice
@@ -275,7 +187,6 @@ func (s *OrderService) ExecuteBuy(amount float64, symbol string) (*Order, error)
 		exchangeList = append(exchangeList, exchange)
 	}
 
-	// Create and return order summary
 	return &Order{
 		LowPrice:  lowPrice,
 		HighPrice: highPrice,

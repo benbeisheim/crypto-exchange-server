@@ -22,8 +22,7 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 	url := fmt.Sprintf("%s/products/%s/book?level=2", c.baseURL, symbol)
 	res, err := http.Get(url)
 	if err != nil {
-		fmt.Println("Error sending request", err)
-		return nil, err
+		return nil, fmt.Errorf("error sending request: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -33,8 +32,7 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		return nil, err
+		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
 	var coinbaseResponse struct {
@@ -44,11 +42,10 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 
 	err = json.Unmarshal(body, &coinbaseResponse)
 	if err != nil {
-		fmt.Println("Error parsing json", err)
-		return nil, err
+		return nil, fmt.Errorf("error parsing json: %w", err)
 	}
 
-	// Convert Coinbase response to new OrderBook format
+	// Convert Coinbase response to OrderBook format
 	orderBook := &OrderBook{
 		Bids:     make([][2]string, len(coinbaseResponse.Bids)),
 		Asks:     make([][2]string, len(coinbaseResponse.Asks)),
