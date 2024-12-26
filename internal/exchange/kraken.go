@@ -1,4 +1,3 @@
-// internal/exchange/kraken.go
 package exchange
 
 import (

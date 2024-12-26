@@ -1,4 +1,3 @@
-// internal/util/symbol.go
 package util
 
 import (

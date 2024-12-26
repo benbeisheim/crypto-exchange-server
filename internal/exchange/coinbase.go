@@ -1,4 +1,3 @@
-// internal/exchange/coinbase.go
 package exchange
 
 import (

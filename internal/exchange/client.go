@@ -1,4 +1,3 @@
-// internal/exchange/client.go
 package exchange
 
 type Client interface {
