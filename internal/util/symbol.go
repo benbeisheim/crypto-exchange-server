@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// validateSymbol checks if the symbol is in the correct format (BASE-QUOTE)
+// validateSymbolFormat checks if the symbol is in the correct (BASE-QUOTE) format
 func ValidateSymbolFormat(symbol string) error {
 	// Check if the symbol contains exactly one hyphen
 	parts := strings.Split(symbol, "-")

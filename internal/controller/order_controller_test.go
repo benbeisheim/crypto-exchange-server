@@ -186,7 +186,6 @@ func TestValidateRequest(t *testing.T) {
 			app, _ := setupTest()
 			controller := &OrderController{}
 
-			// Create a new fiber context for testing
 			req := httptest.NewRequest("GET", fmt.Sprintf("/test?amount=%f&symbol=%s",
 				tt.amount, tt.symbol), nil)
 			ctx := app.AcquireCtx(&fasthttp.RequestCtx{})

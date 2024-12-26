@@ -10,7 +10,7 @@ import (
 
 type CoinbaseClient struct {
 	baseURL string
-} // Empty struct, no fields needed
+}
 
 func NewCoinbaseClient() *CoinbaseClient {
 	return &CoinbaseClient{
@@ -35,6 +35,8 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
+	// Define the expected structure of the coinbase response,
+	// coinbaseResponse.Bids/Asks are arrays of [price, size, num_orders]
 	var coinbaseResponse struct {
 		Bids [][3]interface{} `json:"bids"`
 		Asks [][3]interface{} `json:"asks"`
@@ -45,7 +47,7 @@ func (c *CoinbaseClient) GetOrderBook(symbol string) (*OrderBook, error) {
 		return nil, fmt.Errorf("error parsing json: %w", err)
 	}
 
-	// Convert Coinbase response to OrderBook format
+	// Convert Coinbase response to OrderBook format, third field (num_orders) is not needed
 	orderBook := &OrderBook{
 		Bids:     make([][2]string, len(coinbaseResponse.Bids)),
 		Asks:     make([][2]string, len(coinbaseResponse.Asks)),

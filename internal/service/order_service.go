@@ -10,6 +10,15 @@ import (
 	"github.com/benbeisheim/crypto-exchange-server/internal/types"
 )
 
+type Order struct {
+	LowPrice  float64  `json:"lowPrice"`
+	HighPrice float64  `json:"highPrice"`
+	AvgPrice  float64  `json:"avgPrice"`
+	Exchanges []string `json:"exchange"`
+	TotalSize float64  `json:"totalSize"`
+	Symbol    string   `json:"symbol"`
+}
+
 type OrderServiceInterface interface {
 	ExecuteTransaction(amount float64, symbol string, transType types.TransactionType) (*Order, error)
 }
@@ -26,8 +35,8 @@ func NewOrderService(kraken, coinbase exchange.Client) *OrderService {
 	}
 }
 
-// parse OrderLevel price/size into float
 func (s *OrderService) parseOrderLevel(level [2]string, exchangeName string) (exchange.OrderLevel, error) {
+	// Parse the price and size to float from the level
 	price, err := strconv.ParseFloat(level[0], 64)
 	if err != nil {
 		return exchange.OrderLevel{}, fmt.Errorf("error parsing price: %v", err)
@@ -195,13 +204,4 @@ func (s *OrderService) ExecuteTransaction(amount float64, symbol string, transTy
 		TotalSize: filledAmount,
 		Symbol:    symbol,
 	}, nil
-}
-
-type Order struct {
-	LowPrice  float64  `json:"lowPrice"`
-	HighPrice float64  `json:"highPrice"`
-	AvgPrice  float64  `json:"avgPrice"`
-	Exchanges []string `json:"exchange"`
-	TotalSize float64  `json:"totalSize"`
-	Symbol    string   `json:"symbol"`
 }
