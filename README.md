@@ -4,8 +4,9 @@ This service is a simple API that allows you to get the best price for a given c
 
 ## Endpoints
 
-- Buy: http://localhost:4000/buy?amount=1&symbol=BTCUSDT -- returns buy order for 1 BTC in BTC-USDT market
-- Sell: http://localhost:4000/sell?amount=1&symbol=BTCUSDT -- returns sell order for 1 BTC in BTC-USDT market
+- Buy: http://localhost:4000/buy?amount=1&symbol=BTC-USDT -- returns buy order for 1 BTC in BTC-USDT market
+- Sell: http://localhost:4000/sell?amount=1&symbol=BTC-USDT -- returns sell order for 1 BTC in BTC-USDT market
+- Symbol format must be BASE-QUOTE (- seperates base and quote)
 
 ### Running the service
 
